@@ -1,0 +1,10 @@
+{"items": [
+  {"id": "I1", "title": "Ship search", "status": "Todo", "labels": ["feature"], "priority": "P1", "repository": "https://github.com/example-org/api",
+   "content": {"type": "Issue", "number": 12, "repository": "example-org/api", "url": "https://github.com/example-org/api/issues/12", "title": "Ship search", "body": "Search the index.\n\n**Blocked by:** web#7"}},
+  {"id": "I2", "title": "Cross-repo mention", "status": "Todo", "content": {"type": "Issue", "number": 5, "repository": "example-org/api", "url": "https://github.com/example-org/api/issues/5", "title": "Cross-repo mention", "body": "see api#12"}},
+  {"id": "I3", "title": "URL mention", "status": "In Progress", "content": {"type": "PullRequest", "number": 7, "repository": "example-org/web", "url": "https://github.com/example-org/web/pull/7", "title": "URL mention", "body": "needs https://github.com/example-org/api/issues/12"}},
+  {"id": "I4", "title": "Done same-repo shorthand", "status": "Done", "content": {"type": "Issue", "number": 8, "repository": "example-org/api", "url": "https://github.com/example-org/api/issues/8", "title": "Done same-repo shorthand", "body": "relates to #12"}},
+  {"id": "I5", "title": "Longer number", "status": "Todo", "content": {"type": "Issue", "number": 6, "repository": "example-org/api", "url": "https://github.com/example-org/api/issues/6", "title": "Longer number", "body": "only #123 here"}},
+  {"id": "I6", "title": "Other repo shorthand", "status": "Shipped", "content": {"type": "Issue", "number": 9, "repository": "example-org/web", "url": "https://github.com/example-org/web/issues/9", "title": "Other repo shorthand", "body": "#12 in web"}},
+  {"id": "I7", "title": "A draft idea", "status": "Backlog", "content": {"type": "DraftIssue", "title": "A draft idea", "body": "mentions api#5"}}
+], "totalCount": 7}
