@@ -291,8 +291,7 @@ async def assess(items, ctx, repos=(), goals=None, refresh=False, client_factory
     for it in items:
         a = it["jev"]["answers"]
         it["shipped"] = a["shipped"]["label"]
-        it["norm"] = {k: a[k]["score"] / LEVELS for k in ASKED}
-        it["norm"]["clarity"] = it["clarity"]
+        it["norm"] = {k: it["clarity"] if k == "clarity" else a[k]["score"] / LEVELS for k in DIMS}
         if goals and goals.goals:
             it["norm"]["alignment"] = 1.0 if it["goals"] else \
                 it["align"]["answers"]["alignment"]["score"] / LEVELS
