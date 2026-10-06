@@ -38,7 +38,7 @@ The first version lived inside a private vault as a script tied to one organizat
 - R2. `--repos` accepts a comma-separated list of local git checkouts that the retrieval pass searches.
 - R3. `--goals` accepts a markdown file of outcomes, each with what it unblocks and the item refs it names.
 - R4. The organization description and the reach audience wording are inputs (flag or config file), with neutral defaults.
-- R5. The tool is read-only to GitHub: the only `gh` calls are `project view` and `project item-list`.
+- R5. The tool is read-only to GitHub: the only `gh` calls are `project view` and `project item-list`. *Widened 2026-10-06 for `--inbox`:* inbox mode also issues `gh api` GETs (`user`, `notifications`) and GraphQL queries, never a mutation. Reading notifications does not mark them read or done.
 
 **Ranking quality**
 

@@ -1,5 +1,5 @@
 """
-Per-owner, per-board answer cache, kept outside any repo and written stably.
+Per-owner, per-board (or per-user inbox) answer cache, kept outside any repo and written stably.
 
 A cache file maps item id to an entry:
 
@@ -21,6 +21,10 @@ from jev_board import config
 
 def path_for(owner, board, root=None):
     return Path(root or config.cache_root()) / owner / f"board-{board}.json"
+
+
+def inbox_path(login, root=None):
+    return Path(root or config.cache_root()) / "@inbox" / f"{login}.json"  # "@" is never in a GitHub name
 
 
 def load(path):

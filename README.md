@@ -8,6 +8,23 @@ jev-board 31 --owner my-org --repos ~/code/api,~/code/web --goals goals.md
 
 On a terminal this opens a TUI. `--list` prints the ranking and `--json` prints it as JSON.
 
+## Inbox mode
+
+`--inbox` ranks the open issues and PRs in your GitHub notification inbox instead of a board:
+
+```bash
+jev-board --inbox
+jev-board --inbox --reason review_requested --reason mention --owner my-org
+```
+
+- The inbox covers read and unread threads that you haven't marked done. `--unread` keeps only unread threads.
+- Closed and merged work is dropped, and so are thread types other than issues and PRs, such as releases and CI runs.
+- The TUI's reason column (`status` in `--json`) shows why each thread reached you: `review_requested`, `mention`, `assign`, `author`, `comment`, `subscribed` and so on. Jev reads it as the item's status. `--reason` keeps only the reasons you name and takes a comma-separated list, so `--reason review_requested,mention` works too.
+- `--owner` keeps only one org's or user's repos.
+- `--status` is for board columns and isn't accepted with `--inbox`.
+
+Everything else works the same way: `--repos`, `--goals`, frameworks, the TUI and the cache.
+
 ## Install
 
 Needs Python 3.11+, [uv](https://docs.astral.sh/uv/) and an authenticated `gh` CLI.
@@ -50,14 +67,14 @@ A named item gets full goal alignment. Jev scores every other item on how direct
 
 ## Cache
 
-Answers live in `$XDG_CACHE_HOME/jev-board/<owner>/board-<n>.json` (default `~/.cache/jev-board/`), outside any repo. A re-run asks Jev only about items whose text, codebase evidence or question wording changed. A run with no changes leaves the file untouched. `--refresh` re-asks everything.
+Answers live in `$XDG_CACHE_HOME/jev-board/<owner>/board-<n>.json` (default `~/.cache/jev-board/`), outside any repo. Inbox answers live in `@inbox/<login>.json` in the same folder. A re-run asks Jev only about items whose text, codebase evidence or question wording changed. A run with no changes leaves the file untouched. `--refresh` re-asks everything.
 
 ## Configuration
 
 Any flag can go in a TOML file passed with `--config`. Flags win over the file.
 
 ```toml
-owner = "my-org"
+owner = "my-org"   # or: inbox = true, reason = ["review_requested", "mention"]
 repos = ["~/code/api", "~/code/web"]
 goals = "~/notes/goals.md"
 org = "A small team building a learning platform"
@@ -72,7 +89,7 @@ The key comes from `TYPESAFE_API_KEY`. If that is unset, the tool reads the firs
 
 ## Read-only
 
-The only `gh` calls are `gh project view` and `gh project item-list`. The tool never moves, labels or comments on items.
+For a board, the only `gh` calls are `gh project view` and `gh project item-list`. For the inbox, they are `gh api user`, `gh api notifications` and GraphQL queries that look up the issue or PR behind each thread, at most 50 per query. None of these is a mutation, and reading notifications doesn't mark them read or done. The tool never moves, labels or comments on items.
 
 ## Tests
 

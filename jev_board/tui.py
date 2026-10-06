@@ -102,7 +102,8 @@ class JevBoard(App):
         yield Footer()
 
     def on_mount(self):
-        self.query_one(DataTable).add_columns("#", "score", "R I U E C B G", "shape", "ref", "title", "status")
+        self.query_one(DataTable).add_columns("#", "score", "R I U E C B G", "shape", "ref", "title",
+                                              "reason" if self.s.inbox else "status")
         self.load()
 
     # ── data ──
@@ -117,9 +118,9 @@ class JevBoard(App):
 
     async def _load(self, refresh):
         s = self.s
-        self.sub_title = f"board {s.board} · fetching from GitHub and reading codebases…"
+        self.sub_title = f"{cli.label(s)} · fetching from GitHub and reading codebases…"
         self.meta, self.items, total, repos, g, self.ctx = await asyncio.to_thread(cli.prepare, s)
-        self.title = f"Jev board · {s.board} · {self.meta.get('title', '')}"
+        self.title = f"Jev board · {cli.label(s)} · {self.meta.get('title', '')}"
         self.short = short_refs(self.items)
         bar_ = self.query_one(ProgressBar)
         bar_.update(total=len(self.items), progress=0)
@@ -199,7 +200,8 @@ class JevBoard(App):
         head.append(f"#{it['rank']} under {scoring.FRAMEWORKS[self.fw][0]}\n", style="cyan")
         head.append(it["title"] + "\n\n", style="bold white")
         head.append(take(it) + "\n", style="italic yellow")
-        facts = [f"status {it['status']}"] + [f"{k} {v if not isinstance(v, dict) else v.get('title', '')}"
+        kind = "reason" if self.s.inbox else "status"
+        facts = [f"{kind} {it['status']}"] + [f"{k} {v if not isinstance(v, dict) else v.get('title', '')}"
                                                for k, v in it["fields"].items()]
         if it["labels"]:
             facts.append("labels " + ", ".join(it["labels"]))

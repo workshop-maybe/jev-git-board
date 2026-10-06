@@ -188,8 +188,8 @@ def clarity(item, ev):
 
 @dataclass
 class Context:
-    owner: str
-    board: int
+    owner: str | None
+    board: int | None  # None for the inbox
     title: str
     org: str
     audience: str
@@ -316,6 +316,8 @@ async def assess(items, ctx, repos=(), goals=None, refresh=False, client_factory
 
 DUEL_Q = ("Both `a` and `b` are open on the same team board, and the team can start only one "
           "this week. Which should they start first?")
+DUEL_Q_INBOX = ("Both `a` and `b` are open issues or PRs in the same person's GitHub inbox, and they "
+                "can deal with only one next. `status` is why it reached them. Which comes first?")
 
 
 async def duel(a, b, ctx, client_factory=None):
@@ -325,10 +327,11 @@ async def duel(a, b, ctx, client_factory=None):
         return {"ref": it["ref"], "title": it["title"], "status": it["status"], "labels": it["labels"],
                 "blocked_by_line": it["blocked_by"], "body": it["body"][:MAX_BODY // 2]}
     state = {"board": ctx.title, "a": card(a), "b": card(b)}
+    q = DUEL_Q_INBOX if ctx.board is None else DUEL_Q
     async with (client_factory or typesafe.AsyncTypeSafeClient)() as client:
         r = await client.system_one(state=state, questions={
-            "ab": Choice(instructions=DUEL_Q, criteria={"a": "Start `a` first", "b": "Start `b` first"}),
-            "ba": Choice(instructions=DUEL_Q, criteria={"b": "Start `b` first", "a": "Start `a` first"}),
+            "ab": Choice(instructions=q, criteria={"a": "Start `a` first", "b": "Start `b` first"}),
+            "ba": Choice(instructions=q, criteria={"b": "Start `b` first", "a": "Start `a` first"}),
         })
     pa = (r.choices["ab"].probabilities["a"] + r.choices["ba"].probabilities["a"]) / 2
     flip = abs(r.choices["ab"].probabilities["a"] - r.choices["ba"].probabilities["a"])

@@ -2,6 +2,9 @@
 jev-board: rank a GitHub Project board's open items with Jev, read-only to GitHub.
 
     jev-board 31 --owner my-org --repos ~/code/api,~/code/web --goals goals.md
+    jev-board --inbox --reason review_requested,mention
+
+--inbox ranks the open issues and PRs in your notification inbox instead of a board.
 
 Opens the TUI on a terminal; --list or --json print the ranking instead. Answers are
 cached under ~/.cache/jev-board/, so switching framework costs nothing and a re-run asks
@@ -17,8 +20,13 @@ from jev_board import cache, config, github, goals, retrieval, scoring
 
 def parse(argv=None):
     ap = argparse.ArgumentParser(prog="jev-board", description=__doc__.strip().split("\n")[0])
-    ap.add_argument("board", type=int, help="GitHub Project number")
-    ap.add_argument("--owner", help="org or user that owns the project")
+    ap.add_argument("board", type=int, nargs="?", help="GitHub Project number (omit with --inbox)")
+    ap.add_argument("--owner", help="org or user that owns the project; with --inbox, keep only its repos")
+    ap.add_argument("--inbox", action="store_true", default=None,
+                    help="rank open issues and PRs in your GitHub notifications instead of a board")
+    ap.add_argument("--reason", action="append",
+                    help="with --inbox, only these reasons, e.g. review_requested,mention (repeatable)")
+    ap.add_argument("--unread", action="store_true", default=None, help="with --inbox, only unread threads")
     ap.add_argument("--repos", help="comma-separated local checkouts to search for evidence")
     ap.add_argument("--goals", help="markdown goals file (see examples/goals.md)")
     ap.add_argument("--status", action="append", help="only these columns (repeatable)")
@@ -37,8 +45,11 @@ def parse(argv=None):
 
 
 def prepare(s):
-    """The blocking inputs: board items, codebases and goals. Returns (meta, items, total, repos, goals, ctx)."""
-    meta, items, total = github.fetch(s.board, s.owner, s.status)
+    """The blocking inputs: board or inbox items, codebases and goals. Returns (meta, items, total, repos, goals, ctx)."""
+    if s.inbox:
+        meta, items, total = github.fetch_inbox(s.reason, s.owner, s.unread)
+    else:
+        meta, items, total = github.fetch(s.board, s.owner, s.status)
     repos = retrieval.load_repos(s.repos)
     g = goals.load(s.goals) if s.goals else None
     return meta, items, total, repos, g, context(s, meta)
@@ -52,9 +63,13 @@ def load(s):
 
 
 def context(s, meta):
+    path = cache.inbox_path(meta["login"]) if s.inbox else cache.path_for(s.owner, s.board)
     return scoring.Context(owner=s.owner, board=s.board, title=meta.get("title", ""), org=s.org,
-                           audience=s.audience, cache_path=cache.path_for(s.owner, s.board),
-                           env_file=s.env_file)
+                           audience=s.audience, cache_path=path, env_file=s.env_file)
+
+
+def label(s):
+    return "inbox" if s.inbox else f"board {s.board}"
 
 
 def flags(it):
@@ -65,7 +80,7 @@ def flags(it):
 def print_list(s, meta, items, total, stats):
     ranked = scoring.rank(items, s.framework)
     cached = len(items) - stats["asked"]
-    print(f"board {s.board} · {meta.get('title', '')} · {len(items)} open of {total} · "
+    print(f"{label(s)} · {meta.get('title', '')} · {len(items)} open of {total} · "
           f"{stats['asked']} asked, {stats['aligned']} aligned ({stats['tokens']} in tokens), "
           f"{cached} cached · {scoring.FRAMEWORKS[s.framework][0]}\n")
     for it in ranked:
