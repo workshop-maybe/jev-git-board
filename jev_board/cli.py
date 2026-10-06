@@ -32,18 +32,23 @@ def parse(argv=None):
     out.add_argument("--list", action="store_true", help="print the ranking")
     out.add_argument("--json", action="store_true", help="print the ranking as JSON")
     a = ap.parse_args(argv)
-    flags = {k: v for k, v in vars(a).items() if k not in ("list", "json")}
-    return config.resolve(flags), a
+    given = {k: v for k, v in vars(a).items() if k not in ("list", "json")}
+    return config.resolve(given), a
 
 
-def load(s, on_progress=None):
-    """Fetch, gather evidence and assess. Returns (meta, items, total, stats, ctx)."""
+def prepare(s):
+    """The blocking inputs: board items, codebases and goals. Returns (meta, items, total, repos, goals, ctx)."""
     meta, items, total = github.fetch(s.board, s.owner, s.status)
     repos = retrieval.load_repos(s.repos)
     g = goals.load(s.goals) if s.goals else None
-    ctx = context(s, meta)
-    stats = asyncio.run(scoring.assess(items, ctx, repos, g, s.refresh, on_progress=on_progress))
-    return meta, items, total, stats, ctx
+    return meta, items, total, repos, g, context(s, meta)
+
+
+def load(s):
+    """Prepare and assess. Returns (meta, items, total, stats)."""
+    meta, items, total, repos, g, ctx = prepare(s)
+    stats = asyncio.run(scoring.assess(items, ctx, repos, g, s.refresh))
+    return meta, items, total, stats
 
 
 def context(s, meta):
@@ -79,7 +84,10 @@ def main(argv=None):
         from jev_board.tui import run
         run(s)
         return
-    meta, items, total, stats, _ = load(s)
+    meta, items, total, stats = load(s)
+    if stats["failed"]:
+        print(f"warning: Jev failed on {stats['failed']} item(s), left out of the ranking: {stats['error']}",
+              file=sys.stderr)
     if a.json:
         print_json(s, items)
     else:

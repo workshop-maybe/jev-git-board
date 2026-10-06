@@ -52,6 +52,10 @@ def _split(v):
     return list(v or [])
 
 
+def _expand(p):
+    return os.path.expanduser(p) if p else p
+
+
 def resolve(flags):
     """Merge parsed flags (a dict; None means not given) over the TOML file named by
     `flags["config"]`, over defaults."""
@@ -59,16 +63,15 @@ def resolve(flags):
     merged = {**file, **{k: v for k, v in flags.items() if v is not None and k != "config"}}
     if not merged.get("owner"):
         sys.exit("--owner is required (or set owner in the --config file)")
-    expand = lambda p: os.path.expanduser(p) if p else p  # noqa: E731
     return Settings(
         board=int(merged["board"]),
         owner=merged["owner"],
-        repos=[expand(r) for r in _split(merged.get("repos"))],
-        goals=expand(merged.get("goals")),
+        repos=[_expand(r) for r in _split(merged.get("repos"))],
+        goals=_expand(merged.get("goals")),
         org=merged.get("org") or DEFAULT_ORG,
         audience=merged.get("audience") or DEFAULT_AUDIENCE,
         framework=merged.get("framework") or DEFAULT_FRAMEWORK,
-        env_file=expand(merged.get("env_file")),
+        env_file=_expand(merged.get("env_file")),
         status=_split(merged["status"]) if merged.get("status") else None,
         refresh=bool(merged.get("refresh")),
     )

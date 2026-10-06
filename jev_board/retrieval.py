@@ -1,5 +1,5 @@
 """
-Deterministic, local codebase evidence per board item (KTD5).
+Deterministic, local codebase evidence per board item.
 
 Each repo is read once at its default branch (`origin/HEAD`, else `HEAD`), never the
 working tree. Paths named in an item match tracked files by suffix and fill `files`.
@@ -32,6 +32,15 @@ class Repo:
     sha: str
     files: list[str] = field(default_factory=list)
     log: list[tuple[str, str]] = field(default_factory=list)  # (sha, full message)
+    by_base: dict[str, list[str]] = field(default_factory=dict)  # file name -> tracked paths
+
+    def __post_init__(self):
+        for f in self.files:
+            self.by_base.setdefault(f.rsplit("/", 1)[-1], []).append(f)
+
+    def match(self, p):
+        """Tracked files equal to `p` or ending in `/p`."""
+        return [f for f in self.by_base.get(p.rsplit("/", 1)[-1], []) if f == p or f.endswith("/" + p)]
 
 
 def _git(path, *args, ok=(0,)):
@@ -102,7 +111,7 @@ def evidence(item, repos):
     paths, syms = _candidates(f"{item['title']}\n{item.get('body') or ''}")
     files, hits, mentions = set(), {}, []
     for r in repos:
-        files |= {f"{r.name}:{f}" for f in r.files for p in paths if f == p or f.endswith("/" + p)}
+        files |= {f"{r.name}:{f}" for p in paths for f in r.match(p)}
         if found := _grep(r, syms):
             hits[r.name] = len(found)
         if n.isdigit():

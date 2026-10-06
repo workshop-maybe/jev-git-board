@@ -10,6 +10,7 @@ Facts stay in code: status, labels, fields, the `Blocked by:` line, how many oth
 reference this one, and the codebase evidence from the retrieval pass.
 """
 import asyncio
+import dataclasses
 import hashlib
 import json
 import re
@@ -23,7 +24,7 @@ SCHEMA_VERSION = "1"  # bump when the state or cache entry changes shape
 MAX_BODY = 6000  # the head of an issue carries its intent
 DIMS = ("reach", "impact", "urgency", "effort", "clarity", "unblocks")
 ASKED = ("reach", "impact", "urgency", "effort", "unblocks")
-LEVELS = 4  # every Score below has five levels, 0-4
+MAX_LEVEL = 4  # every Score below has five levels, 0-4
 SHORT = {"reach": "R", "impact": "I", "urgency": "U", "effort": "E", "clarity": "C",
          "unblocks": "B", "alignment": "G"}
 
@@ -200,13 +201,13 @@ def state_for(item, ctx, ev):
     body = item["body"]
     stable = retrieval.stable(ev) if ev else {}
     return {
-        "board": {"title": ctx.title, "organisation": ctx.org},
+        "board": {"title": ctx.title, "organization": ctx.org},
         "item": {"ref": item["ref"], "title": item["title"], "type": item["type"],
                  "status": item["status"], "labels": item["labels"], "fields": item["fields"],
                  "blocked_by_line": item["blocked_by"], "referenced_by_count": item["referenced_by"],
                  "body": body[:MAX_BODY], "body_truncated": len(body) > MAX_BODY},
         "codebase": {"repos": stable.get("repos", []), "files": stable.get("files", []),
-                     "mentions": [m for m in ev.get("mentions", [])] if ev else []},
+                     "mentions": ev.get("mentions", [])},
     }
 
 
@@ -238,15 +239,18 @@ async def _ask(client, sem, state, questions):
 
 async def assess(items, ctx, repos=(), goals=None, refresh=False, client_factory=None, on_progress=None):
     """Attach `evidence`, `jev`, `shipped`, `goals` and `norm` (0-1 per dimension) to each item.
-    Asks Jev only for what changed since the cached answers. Returns counts and tokens."""
+    Asks Jev only for what changed since the cached answers. An item whose call fails is
+    left unranked and counted in `failed`; the rest still rank. Returns counts and tokens."""
     store = cache.load(ctx.cache_path)
     qs = base_questions(ctx.audience)
     base_sig = (SCHEMA_VERSION, _dump_q(qs))
     align_sig = (SCHEMA_VERSION, ALIGNMENT.model_dump(), goals.digest if goals else None)
-    goal_state = [g.__dict__ for g in goals.goals] if goals else []
+    goal_state = [dataclasses.asdict(g) for g in goals.goals] if goals else []
     base_todo, align_todo = [], []
-    for it in items:
-        ev = retrieval.evidence(it, repos) if repos else {}
+    # git grep per item; run off the event loop so the TUI stays responsive
+    evs = await asyncio.gather(*(asyncio.to_thread(retrieval.evidence, it, repos) for it in items)) \
+        if repos else [{} for _ in items]
+    for it, ev in zip(items, evs):
         it["evidence"] = ev
         it["clarity"] = clarity(it, ev)
         state = state_for(it, ctx, ev)
@@ -281,21 +285,31 @@ async def assess(items, ctx, repos=(), goals=None, refresh=False, client_factory
                 it["align"] = {"key": akey, **await _ask(client, sem, state, {"alignment": ALIGNMENT})}
                 store.setdefault(it["id"], {})["alignment"] = it["align"]
 
-            await asyncio.gather(*(base(it, s) for it, s in base_todo),
-                                 *(align(it, k, s) for it, k, s in align_todo))
-        tokens = sum(it["jev"]["in_tokens"] for it, _ in base_todo) + \
-            sum(it["align"]["in_tokens"] for it, _, _ in align_todo)
+            results = await asyncio.gather(*(base(it, s) for it, s in base_todo),
+                                           *(align(it, k, s) for it, k, s in align_todo),
+                                           return_exceptions=True)
         for it in items:
-            store.setdefault(it["id"], {})["ref"] = it["ref"]
-        cache.save(ctx.cache_path, store)
+            if it["id"] in store:
+                store[it["id"]]["ref"] = it["ref"]
+        cache.save(ctx.cache_path, store)  # every answer that landed, even when some calls failed
+        errors = [r for r in results if isinstance(r, BaseException)]
+        tokens = sum(it["jev"]["in_tokens"] for it, _ in base_todo if "jev" in it) + \
+            sum(it["align"]["in_tokens"] for it, _, _ in align_todo if "align" in it)
+    else:
+        errors = []
+    failed = 0
     for it in items:
+        if "jev" not in it or (goals and goals.goals and not it["goals"] and "align" not in it):
+            failed += 1  # left without `norm`, so rank() leaves it out
+            continue
         a = it["jev"]["answers"]
         it["shipped"] = a["shipped"]["label"]
-        it["norm"] = {k: it["clarity"] if k == "clarity" else a[k]["score"] / LEVELS for k in DIMS}
+        it["norm"] = {k: it["clarity"] if k == "clarity" else a[k]["score"] / MAX_LEVEL for k in DIMS}
         if goals and goals.goals:
-            it["norm"]["alignment"] = 1.0 if it["goals"] else \
-                it["align"]["answers"]["alignment"]["score"] / LEVELS
-    return {"asked": len(base_todo), "aligned": len(align_todo), "tokens": tokens}
+            aligned = 1.0 if it["goals"] else it["align"]["answers"]["alignment"]["score"] / MAX_LEVEL
+            it["norm"]["alignment"] = aligned
+    return {"asked": len(base_todo), "aligned": len(align_todo), "tokens": tokens,
+            "failed": failed, "error": str(errors[0]) if errors else None}
 
 
 # ── Duel: which of two items goes first. Asked in both option orders. ──

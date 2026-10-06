@@ -16,7 +16,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import DataTable, Footer, Header, ProgressBar, Static
 
-from jev_board import cli, github, goals, retrieval, scoring
+from jev_board import cli, scoring
 
 BLOCKS = " ▁▂▃▄▅▆▇█"
 FW_KEYS = list(scoring.FRAMEWORKS)
@@ -89,6 +89,7 @@ class JevBoard(App):
         self.fw, self.weights, self.wdim = settings.framework, dict(scoring.DEFAULT_WEIGHTS), 0
         self.show_map, self.duels, self.spent = False, {}, 0
         self.short = lambda ref: ref
+        self.qs = scoring.base_questions(settings.audience)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -106,17 +107,20 @@ class JevBoard(App):
 
     # ── data ──
 
-    @work(exclusive=True)
+    @work(exclusive=True, exit_on_error=False)
     async def load(self, refresh=False):
+        try:
+            await self._load(refresh)
+        except (Exception, SystemExit) as e:  # gh, git, goals and key errors exit in the CLI
+            self.notify(str(e.code if isinstance(e, SystemExit) else e), severity="error", timeout=10)
+            self.sub_title = "load failed · r to retry · q to quit"
+
+    async def _load(self, refresh):
         s = self.s
-        self.sub_title = f"board {s.board} · fetching from GitHub…"
-        self.meta, self.items, total = await asyncio.to_thread(github.fetch, s.board, s.owner, s.status)
+        self.sub_title = f"board {s.board} · fetching from GitHub and reading codebases…"
+        self.meta, self.items, total, repos, g, self.ctx = await asyncio.to_thread(cli.prepare, s)
         self.title = f"Jev board · {s.board} · {self.meta.get('title', '')}"
         self.short = short_refs(self.items)
-        self.sub_title = "reading codebases…"
-        repos = await asyncio.to_thread(retrieval.load_repos, s.repos)
-        g = goals.load(s.goals) if s.goals else None
-        self.ctx = cli.context(s, self.meta)
         bar_ = self.query_one(ProgressBar)
         bar_.update(total=len(self.items), progress=0)
         done = [0]
@@ -130,6 +134,9 @@ class JevBoard(App):
         self.notify(f"{len(self.items)} open of {total} · Jev asked about {stats['asked']}, aligned "
                     f"{stats['aligned']}, {len(self.items) - stats['asked']} from cache · "
                     f"{stats['tokens']:,} input tokens")
+        if stats["failed"]:
+            self.notify(f"Jev failed on {stats['failed']} item(s), left out: {stats['error']}",
+                        severity="warning", timeout=10)
         self.refresh_view()
 
     def refresh_view(self, keep=None):
@@ -211,23 +218,21 @@ class JevBoard(App):
                 facts.append(f"commit {m['repo']}@{m['sha'][:7]} {m['subject'][:60]}")
         head.append("\n".join(facts) + "\n", style="dim")
 
-        qs = scoring.base_questions(self.s.audience)
         tbl = Table.grid(padding=(0, 1))
         tbl.add_column(width=9)
         tbl.add_column()
         answers = {**it["jev"]["answers"], **(it.get("align") or {}).get("answers", {})}
         for k, v in it["norm"].items():
             a = answers.get(k)
+            label = Text(k, style=f"bold {DIM_COLOR[k]}")
             if not a:  # clarity is computed; a goal-named item is aligned in code
-                tbl.add_row(Text(k, style=f"bold {DIM_COLOR[k]}"),
-                            Text.assemble(bar(v, 16, DIM_COLOR[k]), (f" {v:.2f}  from facts", "dim")))
+                tbl.add_row(label, Text.assemble(bar(v, 16, DIM_COLOR[k]), (f" {v:.2f}  from facts", "dim")))
                 continue
-            q = qs.get(k) or scoring.ALIGNMENT
-            tbl.add_row(Text(k, style=f"bold {DIM_COLOR[k]}"),
-                        Text.assemble(bar(v, 16, DIM_COLOR[k]),
-                                      (f" {a['score']:.1f}/{scoring.LEVELS}  conf {a['confidence']:.2f}", "dim")))
+            q = self.qs.get(k) or scoring.ALIGNMENT
+            tbl.add_row(label, Text.assemble(bar(v, 16, DIM_COLOR[k]),
+                                             (f" {a['score']:.1f}/{scoring.MAX_LEVEL}  conf {a['confidence']:.2f}", "dim")))
             dist = Text("          ")
-            for lv in range(scoring.LEVELS + 1):
+            for lv in range(scoring.MAX_LEVEL + 1):
                 dist.append(spark(a["probabilities"].get(str(lv), 0)), style=DIM_COLOR[k])
             dist.append(f"  “{q.criteria[round(a['score'])]}”", style="italic")
             tbl.add_row("", dist)
@@ -317,7 +322,7 @@ class JevBoard(App):
     def action_reask(self):
         self.load(refresh=True)
 
-    @work(exclusive=True, group="duel")
+    @work(exclusive=True, group="duel", exit_on_error=False)
     async def action_duel(self):
         i = self.query_one(DataTable).cursor_row
         if i is None or i + 1 >= len(self.ranked):
@@ -325,12 +330,16 @@ class JevBoard(App):
             return
         a, b = self.ranked[i], self.ranked[i + 1]
         self.notify(f"⚔  {a['ref']} vs {b['ref']}: asking Jev both ways round…")
-        r = await scoring.duel(a, b, self.ctx)
+        try:
+            r = await scoring.duel(a, b, self.ctx)
+        except (Exception, SystemExit) as e:
+            self.notify(f"duel failed: {e.code if isinstance(e, SystemExit) else e}", severity="error")
+            return
         self.spent += r["in_tokens"]
         win, lose, p = (a, b, r["p_a"]) if r["p_a"] >= 0.5 else (b, a, 1 - r["p_a"])
         verdict = "agrees with the ranking" if win is a else "upsets the ranking"
-        shaky = "  (order-sensitive: answers moved {:.0%} when options swapped)".format(r["order_spread"]) \
-            if r["order_spread"] > 0.2 else ""
+        spread = r["order_spread"]
+        shaky = f"  (order-sensitive: answers moved {spread:.0%} when options swapped)" if spread > 0.2 else ""
         line = Text.assemble(("⚔ ", "bold"), (f"{win['ref']}", "bold green"), " before ",
                              (f"{lose['ref']}", "red"), f"  p={p:.2f} · {verdict}{shaky}")
         for it in (a, b):

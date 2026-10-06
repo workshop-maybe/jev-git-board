@@ -5,9 +5,6 @@ import pytest
 
 from jev_board import cache, goals, scoring
 
-LEVELS = scoring.LEVELS
-
-
 # ── fake Jev ──
 
 class FakeClient:
@@ -230,3 +227,18 @@ def test_rank_never_calls_jev(tmp_path):
     for fw in scoring.FRAMEWORKS:
         scoring.rank(items, fw)
     assert len(calls) == n
+
+
+def test_failed_call_leaves_item_unranked_and_keeps_the_rest(tmp_path):
+    class Flaky(FakeClient):
+        async def system_one(self, state, questions, **kw):
+            if state["item"]["ref"] == "api#2":
+                raise RuntimeError("rate limited")
+            await asyncio.sleep(0.01)  # still in flight when the other call fails
+            return await super().system_one(state, questions, **kw)
+    c = ctx(tmp_path)
+    items = [board_item("api#1"), board_item("api#2"), board_item("api#3")]
+    stats = asyncio.run(scoring.assess(items, c, client_factory=lambda: Flaky({}, [])))
+    assert stats["failed"] == 1 and "rate limited" in stats["error"]
+    assert sorted(e["ref"] for e in cache.load(c.cache_path).values()) == ["api#1", "api#3"]
+    assert sorted(it["ref"] for it in scoring.rank(items)) == ["api#1", "api#3"]
