@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from jev_board import cli, github, typesafe
+from jev_board import cli, github, retrieval, typesafe
 from test_scoring import FakeClient
 
 FIXTURES = Path(__file__).parent / "fixtures" / "github"
@@ -11,12 +11,13 @@ FIXTURES = Path(__file__).parent / "fixtures" / "github"
 
 @pytest.fixture
 def offline(monkeypatch, tmp_path):
-    """Stand in for the two process boundaries: `gh` and the Jev client."""
+    """Stand in for the process boundaries: `gh`, the Jev client and the repo we run in."""
     def gh(argv):
         name = "project_view.json" if argv[2] == "view" else "item_list.json"
         return (FIXTURES / name).read_text()
     calls = []
     monkeypatch.setattr(github, "_subprocess_run", gh)
+    monkeypatch.setattr(retrieval, "here", lambda path=".": None)
     monkeypatch.setattr(typesafe, "AsyncTypeSafeClient", lambda: FakeClient({}, calls))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     monkeypatch.setenv("TYPESAFE_API_KEY", "test")
@@ -50,3 +51,18 @@ def test_missing_owner_exits(offline):
 def test_non_terminal_falls_back_to_list(offline, capsys):
     cli.main(["7", "--owner", "o"])  # pytest's captured stdout is not a terminal
     assert capsys.readouterr().out.startswith("board 7")
+
+
+def test_owner_and_repos_default_to_the_current_repo(offline, monkeypatch, capsys, tmp_path):
+    seen = {}
+    monkeypatch.setattr(retrieval, "here", lambda path=".": {"root": str(tmp_path), "owner": "acme"})
+    monkeypatch.setattr(retrieval, "load_repos", lambda paths: seen.setdefault("repos", paths) and [])
+    cli.main(["7", "--list"])
+    err = capsys.readouterr().err
+    assert seen["repos"] == [str(tmp_path)]
+    assert f"codebase evidence from {tmp_path}" in err and "owner acme" in err
+
+
+def test_no_note_when_nothing_is_inferred(offline, capsys):
+    cli.main(["7", "--owner", "o", "--list"])
+    assert capsys.readouterr().err == ""

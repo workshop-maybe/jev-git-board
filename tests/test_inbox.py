@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from jev_board import cache, cli, config, github, typesafe
+from jev_board import cache, cli, config, github, retrieval, typesafe
 from test_scoring import FakeClient
 
 
@@ -195,6 +195,7 @@ def test_inbox_cache_cannot_collide_with_a_board():
 def offline(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(github, "_subprocess_run", fake_gh([]))
+    monkeypatch.setattr(retrieval, "here", lambda path=".": None)
     monkeypatch.setattr(typesafe, "AsyncTypeSafeClient", lambda: FakeClient({}, calls))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     monkeypatch.setenv("TYPESAFE_API_KEY", "test")

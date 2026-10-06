@@ -81,3 +81,39 @@ def test_missing_key_names_path_and_leaks_nothing(monkeypatch, tmp_path):
     msg = str(e.value)
     assert str(env) in msg
     assert "hunter2" not in msg
+
+
+# ── the current repo ──
+
+HERE = {"root": "/code/api", "owner": "acme"}
+
+
+def test_current_repo_fills_repos_and_owner():
+    s = config.resolve({"board": 1}, here=HERE)
+    assert s.repos == ["/code/api"] and s.owner == "acme"
+    assert s.inferred == {"repos": ["/code/api"], "owner": "acme"}
+
+
+def test_flags_and_file_win_over_the_current_repo(tmp_path):
+    s = config.resolve({"board": 1, "owner": "mine", "repos": "x"}, here=HERE)
+    assert s.repos == ["x"] and s.owner == "mine" and s.inferred == {}
+    toml = tmp_path / "jev.toml"
+    toml.write_text('owner = "file-org"\nrepos = []\n')
+    s = config.resolve({"board": 1, "config": str(toml)}, here=HERE)
+    assert s.repos == [] and s.owner == "file-org" and s.inferred == {}
+
+
+def test_empty_repos_flag_turns_the_default_off():
+    s = config.resolve({"board": 1, "repos": ""}, here=HERE)
+    assert s.repos == [] and "repos" not in s.inferred
+
+
+def test_inbox_takes_repos_but_never_the_owner_filter():
+    s = config.resolve({"inbox": True}, here=HERE)
+    assert s.repos == ["/code/api"] and s.owner is None
+
+
+def test_repo_without_github_origin_still_needs_owner():
+    with pytest.raises(SystemExit) as e:
+        config.resolve({"board": 1}, here={"root": "/code/api", "owner": None})
+    assert "--owner" in str(e.value)

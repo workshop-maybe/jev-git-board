@@ -31,6 +31,7 @@ class Settings:
     env_file: str | None = None
     status: list[str] | None = None
     refresh: bool = False
+    inferred: dict = field(default_factory=dict)  # what came from the current repo, for a notice
     inbox: bool = False
     reason: list[str] | None = None
     unread: bool = False
@@ -59,12 +60,19 @@ def _expand(p):
     return os.path.expanduser(p) if p else p
 
 
-def resolve(flags):
+def resolve(flags, here=None):
     """Merge parsed flags (a dict; None means not given) over the TOML file named by
-    `flags["config"]`, over defaults."""
+    `flags["config"]`, over the current repo `here` ({"root", "owner"}, or None), over
+    defaults. The repo fills only what neither flags nor file set: `repos` (an explicit
+    empty value turns it off) and, for a board, `owner`."""
     file = _load_toml(flags["config"]) if flags.get("config") else {}
     merged = {**file, **{k: v for k, v in flags.items() if v is not None and k != "config"}}
     inbox = bool(merged.get("inbox"))
+    inferred = {}
+    if here and merged.get("repos") is None:
+        merged["repos"] = inferred["repos"] = [here["root"]]
+    if here and here.get("owner") and not inbox and not merged.get("owner"):
+        merged["owner"] = inferred["owner"] = here["owner"]
     if inbox and merged.get("board") is not None:
         sys.exit("give a board number or --inbox, not both")
     if inbox and merged.get("status"):
@@ -75,7 +83,8 @@ def resolve(flags):
         if merged.get("reason") or merged.get("unread"):
             sys.exit("--reason and --unread only apply with --inbox")
         if not merged.get("owner"):
-            sys.exit("--owner is required (or set owner in the --config file)")
+            sys.exit("--owner is required (or set owner in the --config file, or run inside a "
+                     "checkout whose origin is on GitHub)")
     return Settings(
         board=None if inbox else int(merged["board"]),
         owner=merged.get("owner"),
@@ -87,6 +96,7 @@ def resolve(flags):
         env_file=_expand(merged.get("env_file")),
         status=_split(merged["status"]) if merged.get("status") else None,
         refresh=bool(merged.get("refresh")),
+        inferred=inferred,
         inbox=inbox,
         reason=_split(merged["reason"]) if merged.get("reason") else None,
         unread=bool(merged.get("unread")),

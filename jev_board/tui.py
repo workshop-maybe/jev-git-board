@@ -102,6 +102,8 @@ class JevBoard(App):
         yield Footer()
 
     def on_mount(self):
+        if note := cli.inferred_note(self.s):
+            self.notify(note)
         self.query_one(DataTable).add_columns("#", "score", "R I U E C B G", "shape", "ref", "title",
                                               "reason" if self.s.inbox else "status")
         self.load()

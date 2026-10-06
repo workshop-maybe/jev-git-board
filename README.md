@@ -59,6 +59,16 @@ An item that Jev calls shipped, with a commit that names it, sorts below the ope
 
 That evidence goes to Jev with the item. It informs effort and the shipped check.
 
+### Running inside a repo
+
+If you run the tool from inside a git checkout and don't pass `--repos`, that checkout is the codebase evidence. For a board, if you don't pass `--owner` and the checkout's `origin` is on GitHub, the owner comes from `origin`. So from inside `~/code/api`:
+
+```bash
+jev-board 31     # same as: jev-board 31 --owner my-org --repos ~/code/api
+```
+
+The tool prints a line on stderr, or shows a notice in the TUI, saying what it took from the repo. Anything you set yourself, in a flag or the `--config` file, wins. `--repos ''` turns codebase evidence off. `--inbox` takes the repo as evidence but never as an `--owner` filter, so your whole inbox still shows.
+
 ### Goals
 
 `--goals` takes a markdown file. Each `## ` heading is a goal, with optional `outcome:` and `unblocks:` lines. Any `repo#n` ref in a goal's section names that item. See [examples/goals.md](examples/goals.md).

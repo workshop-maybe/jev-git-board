@@ -17,6 +17,8 @@ import sys
 
 from jev_board import cache, config, github, goals, retrieval, scoring
 
+INFERRED = {"repos": "codebase evidence from {}", "owner": "owner {}"}
+
 
 def parse(argv=None):
     ap = argparse.ArgumentParser(prog="jev-board", description=__doc__.strip().split("\n")[0])
@@ -27,7 +29,8 @@ def parse(argv=None):
     ap.add_argument("--reason", action="append",
                     help="with --inbox, only these reasons, e.g. review_requested,mention (repeatable)")
     ap.add_argument("--unread", action="store_true", default=None, help="with --inbox, only unread threads")
-    ap.add_argument("--repos", help="comma-separated local checkouts to search for evidence")
+    ap.add_argument("--repos", help="comma-separated local checkouts to search for evidence "
+                                    "(default: the repo you're in; --repos '' for none)")
     ap.add_argument("--goals", help="markdown goals file (see examples/goals.md)")
     ap.add_argument("--status", action="append", help="only these columns (repeatable)")
     ap.add_argument("--framework", choices=scoring.FRAMEWORKS)
@@ -41,7 +44,13 @@ def parse(argv=None):
     out.add_argument("--json", action="store_true", help="print the ranking as JSON")
     a = ap.parse_args(argv)
     given = {k: v for k, v in vars(a).items() if k not in ("list", "json")}
-    return config.resolve(given), a
+    return config.resolve(given, here=retrieval.here()), a
+
+
+def inferred_note(s):
+    """One line naming what was taken from the current repo, or None."""
+    bits = [INFERRED[k].format(", ".join(v) if isinstance(v, list) else v) for k, v in s.inferred.items()]
+    return f"from the current repo: {'; '.join(bits)}" if bits else None
 
 
 def prepare(s):
@@ -95,6 +104,8 @@ def print_json(s, items):
 
 def main(argv=None):
     s, a = parse(argv)
+    if (note := inferred_note(s)) and (a.list or a.json or not sys.stdout.isatty()):
+        print(note, file=sys.stderr)
     if not (a.list or a.json) and sys.stdout.isatty():
         from jev_board.tui import run
         run(s)

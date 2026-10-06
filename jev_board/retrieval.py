@@ -75,6 +75,20 @@ def load_repos(paths):
     return [_load(p) for p in paths]
 
 
+_GITHUB_OWNER = re.compile(r"github\.com[:/]+([\w.-]+)/[\w.-]+?(?:\.git)?/?$")
+
+
+def here(path="."):
+    """The git repo `path` sits in, as {"root", "owner"}, or None outside one (or in one
+    with no commits yet). `owner` is the GitHub org or user of `origin`, else None."""
+    root = (_git(path, "rev-parse", "--show-toplevel") or "").strip()
+    if not root or not (_git(root, "rev-parse", "--verify", "-q", "HEAD^{commit}", ok=(0, 1)) or "").strip():
+        return None
+    url = (_git(root, "config", "--get", "remote.origin.url", ok=(0, 1)) or "").strip()
+    m = _GITHUB_OWNER.search(url)
+    return {"root": root, "owner": m.group(1) if m else None}
+
+
 def _candidates(text):
     """Path-like tokens and code-shaped symbols, in first-seen order, capped."""
     paths, syms = [], []

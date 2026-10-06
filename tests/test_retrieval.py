@@ -133,3 +133,32 @@ def test_non_git_path_exits_naming_it(tmp_path):
     with pytest.raises(SystemExit) as e:
         retrieval.load_repos([str(plain)])
     assert str(plain) in str(e.value)
+
+
+# ── the repo we run in ──
+
+@pytest.mark.parametrize("url, owner", [
+    ("git@github.com:Acme-Co/api.git", "Acme-Co"),
+    ("https://github.com/acme/api", "acme"),
+    ("https://github.com/acme/api.git/", "acme"),
+    ("ssh://git@github.com/acme/my.repo.git", "acme"),
+    ("git@gitlab.com:acme/api.git", None),
+])
+def test_here_reads_github_owner_from_origin(tmp_path, url, owner):
+    path = make_repo(tmp_path, "api")
+    git(path, "remote", "add", "origin", url)
+    (path / "sub").mkdir()
+    assert retrieval.here(str(path / "sub")) == {"root": str(path), "owner": owner}
+
+
+def test_here_without_origin(tmp_path):
+    path = make_repo(tmp_path, "api")
+    assert retrieval.here(str(path)) == {"root": str(path), "owner": None}
+
+
+def test_here_outside_a_repo_or_before_the_first_commit(tmp_path):
+    assert retrieval.here(str(tmp_path)) is None
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    git(empty, "init", "-q")
+    assert retrieval.here(str(empty)) is None
